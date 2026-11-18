@@ -42,17 +42,19 @@ export function stageShot(name, game) {
     g.showScreen('playing');
     g.flashMessage('Solmara siang hari — lalu lintas ramai.');
   } else if (name === 'chase') {
-    // Police chase at dusk: 3 stars, two patrol cars closing in from behind.
-    g.setTimeOfDay(18.5);
-    const car = g.spawnCar({ type: 'sports', x: sx, z: sz, heading, color: '#222831' });
+    // Police chase at dusk: 3 stars, two patrol cars closing in ahead.
+    // 17:30 keeps the dusk sky but leaves enough light that the cars read;
+    // the player car is bright orange so it is not lost against the road.
+    g.setTimeOfDay(17.5);
+    const car = g.spawnCar({ type: 'sports', x: sx, z: sz, heading, color: '#f39c12' });
     if (car) {
       car.speed = 20;
       g.placePlayerInCar(car);
     } else {
       g.placePlayer(sx, sz, heading);
     }
-    g.spawnPoliceCar(sx + 2, sz - 12, heading);
-    g.spawnPoliceCar(sx - 3, sz - 22, heading);
+    g.spawnPoliceCar(sx + 2.5, sz - 9, heading);
+    g.spawnPoliceCar(sx - 2.5, sz - 16, heading);
     g.setWanted(3);
     g.setObjective('Lepaskan kejaran polisi!');
     g.showScreen('playing');
