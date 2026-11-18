@@ -2,6 +2,10 @@
 // Every factory returns a THREE.CanvasTexture; three.js is vendored under
 // game/vendor/three.module.js.
 import * as THREE from '../vendor/three.module.js';
+import { mulberry32 } from './random.js';
+
+// One module-level seeded stream so every texture is identical on every run.
+const texRng = mulberry32(0x5eed2026);
 
 function makeCanvas(w, h) {
   const canvas = document.createElement('canvas');
@@ -23,10 +27,10 @@ function toTexture(canvas, repeatX = 1, repeatY = 1) {
 // Speckle noise over the whole canvas: cheap asphalt/grain detail.
 function speckle(ctx, w, h, count, colors, sizeMax = 2) {
   for (let i = 0; i < count; i += 1) {
-    ctx.fillStyle = colors[(Math.random() * colors.length) | 0];
-    ctx.globalAlpha = 0.08 + Math.random() * 0.22;
-    const s = 1 + Math.random() * sizeMax;
-    ctx.fillRect(Math.random() * w, Math.random() * h, s, s);
+    ctx.fillStyle = colors[(texRng() * colors.length) | 0];
+    ctx.globalAlpha = 0.08 + texRng() * 0.22;
+    const s = 1 + texRng() * sizeMax;
+    ctx.fillRect(texRng() * w, texRng() * h, s, s);
   }
   ctx.globalAlpha = 1;
 }
@@ -41,12 +45,12 @@ export function asphaltTexture() {
   ctx.lineWidth = 1;
   for (let i = 0; i < 7; i += 1) {
     ctx.beginPath();
-    let x = Math.random() * 256;
-    let y = Math.random() * 256;
+    let x = texRng() * 256;
+    let y = texRng() * 256;
     ctx.moveTo(x, y);
     for (let j = 0; j < 4; j += 1) {
-      x += (Math.random() - 0.5) * 70;
-      y += (Math.random() - 0.5) * 70;
+      x += (texRng() - 0.5) * 70;
+      y += (texRng() - 0.5) * 70;
       ctx.lineTo(x, y);
     }
     ctx.stroke();
@@ -69,12 +73,13 @@ export function sidewalkTexture() {
   return toTexture(c, 4, 4);
 }
 
-// variant 0..7 picks the base palette; lit=true lights some windows warm
+// variant 0..9 picks the base palette; lit=true lights some windows warm
 // (night city), lit=false leaves them dark glass.
 export function facadeTexture(variant = 0, lit = true) {
   const palettes = [
     '#5a4a6b', '#6b4a3f', '#3f5a6b', '#4a6b4f',
     '#6b5a3f', '#54423a', '#3a4a5e', '#5e3a4a',
+    '#6b3f5e', '#3f6b5a',
   ];
   const base = palettes[((variant % palettes.length) + palettes.length) % palettes.length];
   const [c, ctx] = makeCanvas(256, 512);
@@ -92,9 +97,9 @@ export function facadeTexture(variant = 0, lit = true) {
       const y = r * wh + wh * 0.22;
       const w = ww * 0.6;
       const h = wh * 0.56;
-      const isLit = lit && Math.random() < 0.45;
+      const isLit = lit && texRng() < 0.45;
       if (isLit) {
-        const warm = Math.random() < 0.75;
+        const warm = texRng() < 0.75;
         ctx.fillStyle = warm ? '#ffd27a' : '#9fe8ff';
         ctx.shadowColor = ctx.fillStyle;
         ctx.shadowBlur = 8;
@@ -133,7 +138,7 @@ export function sandTexture() {
   ctx.strokeStyle = 'rgba(120,95,50,0.25)';
   ctx.lineWidth = 1;
   for (let i = 0; i < 14; i += 1) {
-    const y = Math.random() * 256;
+    const y = texRng() * 256;
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.bezierCurveTo(80, y + 8, 170, y - 8, 256, y + 4);
@@ -153,9 +158,9 @@ export function waterTexture() {
   ctx.strokeStyle = 'rgba(160,220,255,0.28)';
   ctx.lineWidth = 2;
   for (let i = 0; i < 26; i += 1) {
-    const y = Math.random() * 256;
-    const x = Math.random() * 200;
-    const len = 20 + Math.random() * 50;
+    const y = texRng() * 256;
+    const x = texRng() * 200;
+    const len = 20 + texRng() * 50;
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x + len, y);

@@ -126,7 +126,7 @@ export function createCity(scene, rng) {
   }
 
   // --- Buildings: 1-4 per block, heights 8-60 m, lit canvas facades ---
-  const facadeMats = Array.from({ length: 8 }, (_, v) => {
+  const facadeMats = Array.from({ length: 10 }, (_, v) => {
     const tex = facadeTexture(v, true);
     return new THREE.MeshLambertMaterial({ map: tex });
   });
@@ -162,7 +162,7 @@ export function createCity(scene, rng) {
         const h = pick(rng, [8, 12, 16, 20, 26, 32, 40, 48, 60]) * range(rng, 0.9, 1.1);
         const x = bx + plot.dx;
         const z = bz + plot.dz;
-        const variant = rangeInt(rng, 0, 7);
+        const variant = rangeInt(rng, 0, 9);
         const side = facadeMats[variant];
         const mesh = new THREE.Mesh(
           new THREE.BoxGeometry(w, h, d),
@@ -192,6 +192,28 @@ export function createCity(scene, rng) {
           sign.rotation.y = Math.PI;
           group.add(sign);
         }
+      }
+    }
+  }
+
+  // --- Corner planters: concrete boxes with shrubs at each block corner,
+  // so sidewalks are not just flat slabs — and cars cannot cut corners ---
+  const planterMat = new THREE.MeshLambertMaterial({ color: 0x4a4d55 });
+  const shrubMat = new THREE.MeshLambertMaterial({ color: 0x2f6b34, flatShading: true });
+  const planterGeo = new THREE.BoxGeometry(2, 0.9, 2);
+  const shrubGeo = new THREE.BoxGeometry(1.6, 0.9, 1.6);
+  for (const bx of blockCenters()) {
+    for (const bz of blockCenters()) {
+      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const px = bx + cx * (CITY.block / 2 - 2);
+        const pz = bz + cz * (CITY.block / 2 - 2);
+        const planter = new THREE.Mesh(planterGeo, planterMat);
+        planter.position.set(px, 0.57, pz);
+        group.add(planter);
+        const shrub = new THREE.Mesh(shrubGeo, shrubMat);
+        shrub.position.set(px, 1.4, pz);
+        group.add(shrub);
+        colliders.push({ x: px, z: pz, hx: 1, hz: 1 });
       }
     }
   }
