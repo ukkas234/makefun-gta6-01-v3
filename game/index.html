@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solmara — Open World</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game-canvas"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="hud-top-left" class="panel">
+    <div id="player-name">DANNY REYES</div>
+    <div id="health-bar"><div id="health-fill"></div></div>
+    <div id="health-row"><span id="health-text">100</span><span id="cash">$200</span></div>
+  </div>
+  <div id="hud-top-right" class="panel">
+    <div id="stars">☆☆☆☆☆</div>
+    <div id="clock">09:00</div>
+  </div>
+  <div id="feed"></div>
+  <div id="hud-bottom-left" class="panel">
+    <canvas id="minimap" width="168" height="168"></canvas>
+  </div>
+  <div id="hud-bottom-center">
+    <div id="objective" class="panel">Jelajahi Solmara.</div>
+    <div id="speed" class="panel">0 km/h</div>
+  </div>
+  <div id="hint">WASD jalan / kendara &nbsp;•&nbsp; E masuk / keluar mobil &nbsp;•&nbsp; Esc jeda &nbsp;•&nbsp; M suara</div>
+</div>
+
+<div id="screen-title" class="overlay">
+  <div class="overlay-box">
+    <h1>SOLMARA</h1>
+    <p class="tagline">Kota terbuka. Satu pendatang baru. Seribu cara kaya — atau tertangkap.</p>
+    <p class="story">Danny Reyes baru tiba di Solmara dengan dompet tipis dan nama yang belum berarti apa-apa. Ambil pekerjaan, antar paket, curi mobil kalau perlu — dan jangan sampai polisi menutup harimu.</p>
+    <div class="menu">
+      <button id="btn-new" class="btn primary" type="button">Mulai Baru</button>
+      <button id="btn-continue" class="btn" type="button">Lanjutkan</button>
+      <button id="btn-missions" class="btn" type="button">Misi</button>
+      <button id="btn-controls" class="btn" type="button">Kontrol</button>
+      <button id="btn-mute" class="btn" type="button">Suara: Hidup</button>
+    </div>
+    <p id="save-info" class="save-info">Belum ada save.</p>
+    <p class="foot">Solmara &bull; gta6-01 &bull; jalan kaki atau berkendara, kotanya milikmu</p>
+  </div>
+</div>
+
+<div id="screen-pause" class="overlay">
+  <div class="overlay-box">
+    <h2>JEDA</h2>
+    <p class="tagline">Solmara menunggumu. Polisi tidak.</p>
+    <div class="menu">
+      <button id="btn-resume" class="btn primary" type="button">Lanjutkan</button>
+      <button id="btn-restart" class="btn" type="button">Mulai Ulang</button>
+      <button id="btn-mute-pause" class="btn" type="button">Suara: Hidup</button>
+      <button id="btn-quit" class="btn" type="button">Ke Menu Utama</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-busted" class="overlay">
+  <div class="overlay-box">
+    <h2 class="alert">BUSTED</h2>
+    <p class="tagline">Polisi menangkap Danny. Denda dipotong dari uangmu.</p>
+    <p>Denda: <span id="busted-fine">$100</span></p>
+    <div class="menu">
+      <button id="btn-busted-ok" class="btn primary" type="button">Keluar dari kantor polisi</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-wasted" class="overlay">
+  <div class="overlay-box">
+    <h2 class="alert">WASTED</h2>
+    <p class="tagline">Danny tumbang. Rumah sakit menagih biaya perawatan.</p>
+    <p>Biaya: <span id="wasted-fine">$50</span></p>
+    <div class="menu">
+      <button id="btn-wasted-ok" class="btn primary" type="button">Keluar dari rumah sakit</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-mission" class="overlay">
+  <div class="overlay-box">
+    <h2>MISI SELESAI</h2>
+    <p id="mission-title" class="tagline">Kerja bagus, Danny.</p>
+    <p id="mission-reward"></p>
+    <div class="menu">
+      <button id="btn-mission-ok" class="btn primary" type="button">Lanjut</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-story" class="overlay">
+  <div class="overlay-box">
+    <h2>SOLMARA DITAKLUKKAN</h2>
+    <p class="tagline">Semua misi selesai. Dari pendatang baru jadi nama yang dikenal se-kota.</p>
+    <p id="story-stats"></p>
+    <div class="menu">
+      <button id="btn-story-roam" class="btn primary" type="button">Jelajah Bebas</button>
+      <button id="btn-story-title" class="btn" type="button">Ke Menu Utama</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-controls" class="overlay">
+  <div class="overlay-box">
+    <h2>KONTROL</h2>
+    <dl class="controls-list">
+      <dt>W / A / S / D atau panah</dt><dd>Jalan &amp; kendara (Shift = lari)</dd>
+      <dt>E</dt><dd>Masuk / keluar mobil (curi mobil kosong atau milik orang)</dd>
+      <dt>Spasi</dt><dd>Rem tangan saat berkendara</dd>
+      <dt>Esc / P</dt><dd>Jeda</dd>
+      <dt>M</dt><dd>Suara hidup / mati</dd>
+      <dt>Enter</dt><dd>Tutup layar ini saat misi selesai / tertangkap / tumbang</dd>
+    </dl>
+    <div class="menu">
+      <button id="btn-controls-back" class="btn primary" type="button">Kembali</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-missions" class="overlay">
+  <div class="overlay-box">
+    <h2>MISI</h2>
+    <div id="missions-list" class="missions-list">Memuat misi…</div>
+    <div class="menu">
+      <button id="btn-missions-back" class="btn primary" type="button">Kembali</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
