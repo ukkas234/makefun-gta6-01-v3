@@ -275,11 +275,19 @@ export function createHUD() {
       if (!text) return;
       const msg = el('div', 'hud-msg', feed);
       msg.textContent = String(text);
-      while (feed.children.length > 5) feed.removeChild(feed.firstChild);
-      setTimeout(() => {
+      // Prune oldest first, clearing their pending timers so no timer ever
+      // fires on a detached node.
+      while (feed.children.length > 5) {
+        const old = feed.firstChild;
+        if (old._hudTimers) old._hudTimers.forEach((t) => clearTimeout(t));
+        feed.removeChild(old);
+      }
+      const t1 = setTimeout(() => {
         msg.classList.add('fading');
-        setTimeout(() => { if (msg.parentNode) msg.parentNode.removeChild(msg); }, 650);
+        const t2 = setTimeout(() => { if (msg.parentNode) msg.parentNode.removeChild(msg); }, 650);
+        msg._hudTimers = [t2];
       }, 6000);
+      msg._hudTimers = [t1];
     },
 
     setObjective(text) {

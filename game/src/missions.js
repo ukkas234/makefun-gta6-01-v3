@@ -230,7 +230,7 @@ const M3 = {
   briefing: 'The cops are on you — 2 stars. Break line of sight and get clean.',
   reward: 400,
   start(game) {
-    s3 = { done: false, elapsed: 0 };
+    s3 = { done: false, elapsed: 0, sawHeat: false };
     setWanted(game, 2);
     setObjective(game, 'Lose the cops — get to 0 stars');
     if (game.hud && typeof game.hud.setMission === 'function') game.hud.setMission('Lose the Heat');
@@ -239,9 +239,11 @@ const M3 = {
   update(dt, game) {
     if (!s3 || s3.done) return;
     s3.elapsed += dt;
-    // Small grace period so the mission cannot complete on the same tick it
-    // starts if the wanted level has not been applied yet.
-    if (s3.elapsed > 3 && getWanted(game) <= 0) {
+    // Only count down once the heat has actually registered. Without this,
+    // a police module that never applies wanted would let the mission
+    // complete on its own a few seconds after starting.
+    if (getWanted(game) >= 2) s3.sawHeat = true;
+    if (s3.sawHeat && s3.elapsed > 1 && getWanted(game) <= 0) {
       finishMission(game, M3, s3);
       say(game, 'Clean! You lost the heat. +$400');
     }

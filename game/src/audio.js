@@ -46,9 +46,12 @@ export function createAudio() {
   }
   try { bindGestures(); } catch (e) { /* no window: stay silent */ }
 
-  // M mutes/unmutes.
+  // M mutes/unmutes. Ignored while typing in a text field, so pressing M
+  // in a chat/name input never flips the mute state by accident.
   try {
     window.addEventListener('keydown', (e) => {
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
       if (e.code === 'KeyM' && !e.repeat) api.setMuted(!mutedFlag);
     });
   } catch (e) { /* no window: stay silent */ }
