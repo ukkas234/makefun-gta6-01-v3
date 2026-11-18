@@ -3,42 +3,48 @@
 // busted/wasted + missions glue + save/load + HUD + game clock + shots mode.
 // Exports nothing. Plain ES modules, no build step, no network requests.
 //
-// MODULE CONTRACTS (factories imported below; each lives in ./<name>.js):
-//   CONFIG (config.js)            plain object; read via cfg(key, fallback).
-//   createRng(seed) (random.js)   -> rng() returning [0, 1).
-//   createTextures()              -> texture set, passed to city/world.
-//   createCity({rng, textures, config, seed})
-//                                 -> city { playerSpawn {x,z,heading},
-//                                    policeStation {x,z,heading},
-//                                    hospital {x,z,heading}, ... }.
-//   createWorld3D(canvas, {city, textures, config, rng, seed}) -> world
-//     { update(dt, snapshot), render(snapshot), setTimeOfDay(hours),
-//       resize(), addCar(car)? }.
-//   createInput()                 -> input { isDown(code)?, update()? }.
-//   createPlayer({x, z, heading}) -> player {x, z, heading, speed,
-//                                    health, onFoot, car}.
-//   createVehicles({rng, city, world, textures, config}) -> vehicles
-//     { spawnCar({type,x,z,heading,color,isPolice}) -> car,
-//       spawnParked(n)? -> car[], update(dt, snapshot)? }.
+// MODULE CONTRACTS — as the modules actually export them (integration):
+//   config.js: named constants (CITY, ROAD_LINES, COAST, COLORS, BALANCE).
+//     No CONFIG object; cfg() below falls back to its defaults.
+//   random.js: mulberry32(seed) -> rng() returning [0, 1).
+//   textures.js: individual canvas-texture factories; city.js builds its
+//     own set, so main passes no textures around (createTextures: none).
+//   city.js: createCity(scene, rng) -> city { colliders, roadGraph,
+//     spawnPoints, isOnRoad, nearestRoadPoint, collideCircle, buildings }.
+//     Spawns come from city.spawnPoints (no playerSpawn/policeStation).
+//   render.js: createWorld3D(canvas) -> world { scene, camera, renderer,
+//     setTimeOfDay(t) with t a 0..1 day fraction, update(dt) renders }.
+//     No render()/resize()/addCar(); meshes are added to world.scene.
+//   input.js: createInput(canvas) -> input { keys:Set, pressed(code),
+//     consumeClick(), mouseDX/DY, update() }.
+//   player.js: createPlayer(scene, city) -> player { mesh, x, z, heading,
+//     speed, health, onFoot, car, update(dt, input, city), setPosition }.
+//     Main drives movement itself (see updatePlayer) and only uses the
+//     player's mesh/fields; player.update() is NOT called (it would
+//     double-move the player and fight main's E handling).
+//   vehicles.js: createVehicles({scene, city, rng}) -> vehicles
+//     { spawnCar(opts), spawnParked(n), update(), cars[] }.
 //     car: {mesh, x, z, heading, speed, type, color, isPlayer, isPolice}.
-//   createTraffic({rng, city, world, vehicles, config}) -> traffic
-//     { cars[], update(dt, snapshot), spawn(n)? }.
-//   createPolice({rng, city, world, vehicles, config}) -> police
-//     { cars[], wanted?, update(dt, snapshot), setWanted(n)?, clear()?,
-//       spawn(x, z, heading)? }.
-//   createMissionManager({rng, city, world, config}) -> missions
-//     { active?, list()? -> [{id,title,reward}], start(id?)?,
-//       resume(doneIds)?, update(dt, ctx) -> event|null,
-//       getObjective()? , isComplete()? }.
-//     Mission events: {type:'mission-complete', id, title, reward},
-//     {type:'mission-start', id, title, objective}, {type:'package', id,
-//     reward, text}, {type:'wanted', amount}, {type:'message', text}.
-//   createHUD(rootEl)             -> hud { update(snapshot)?,
-//                                    message(text)?, show(screen)? }.
-//   createAudio()                 -> audio { setMuted(b)?, play(name)?,
-//                                    resume()?, siren(on)?, setEngineSpeed(r)? }.
-//   loadSave(key)? / saveSave(key, data)? (save.js) — localStorage
-//     fallback is used when the module omits the key argument.
+//   traffic.js: createTraffic(scene, city, count) -> traffic
+//     { cars[] (live getter), update(dt, playerPos), nearestCar(x,z,d),
+//       removeCar(car), spawn(n) }. AI cars have hasDriver = true.
+//   police.js: createPolice(scene, city) -> police
+//     { wanted (getter), cars[] (live getter), addWanted(n), setWanted(n),
+//       update(dt, player, cars) -> {busted}, reset(), clear(), spawn(x,z,h),
+//       removeCar(car), nearestCopDist(x,z) }.
+//   missions.js: createMissionManager(game) -> missions
+//     { active, list(), isComplete(), completedCount, completedIds,
+//       foundPackageIds, available(), start(index), update(dt) }.
+//     game: { player, city, traffic, police, hud, audio, save,
+//       setObjective, addMoney, showMessage, spawnMarker, clearMarker }.
+//     update() returns nothing; completion is detected in tick() by
+//     watching active/completedCount. Rewards arrive via game.addMoney.
+//   hud.js: createHUD() builds its OWN overlay duplicating index.html's
+//     HUD, so main does NOT instantiate it; the DOM HUD in index.html is
+//     driven by refreshHUD()/flashMessage() below.
+//   audio.js: createAudio() -> audio { setMuted(b), play(name), resume(),
+//     siren(on), setEngineSpeed(r), engine(), shot(), pickup(), sting() }.
+//   save.js: loadSave() / saveSave(data) — no arguments; SAVE_KEY is fixed.
 //   stageShot(name, game) (shots.js) — see game context built below.
 
 import * as configMod from './config.js';
@@ -137,6 +143,7 @@ const state = {
   storyDone: false,
   lastObjective: '',
   parkedCars: [],
+  marker: null, // {x, z, label} mission marker, set by missions via game
 };
 
 // Module instances (built in init).
@@ -203,6 +210,15 @@ function clampToWorld(o) {
   o.x = Math.max(-lim, Math.min(lim, o.x));
   o.z = Math.max(-lim, Math.min(lim, o.z));
 }
+// city.js exposes spawnPoints, not named spawns: [0] player start,
+// [1] police station area, [2] hospital area.
+function spawnPoint(i, fallback) {
+  if (city && Array.isArray(city.spawnPoints) && city.spawnPoints[i]) return city.spawnPoints[i];
+  return fallback;
+}
+const playerSpawn = () => (city && city.playerSpawn) || spawnPoint(0, { x: 0, z: 8, heading: 0 });
+const policeSpawn = () => (city && city.policeStation) || spawnPoint(1, { x: 0, z: -52, heading: 0 });
+const hospitalSpawn = () => (city && city.hospital) || spawnPoint(2, { x: 52, z: 0, heading: 0 });
 function fmtClock(h) {
   const hh = Math.floor(h) % 24;
   const mm = Math.floor((h % 1) * 60);
@@ -467,24 +483,11 @@ function setWanted(n) {
   refreshHUD();
 }
 function syncWanted(dt) {
+  // Police owns the wanted state (decay + bust logic live there); main
+  // only mirrors it into state and drives the siren/HUD on change.
   if (police && typeof police.wanted === 'number' && police.wanted !== state.wanted) {
     state.wanted = Math.max(0, Math.min(5, police.wanted));
-  }
-  if (state.wanted <= 0) {
-    state.wantedQuietTimer = 0;
-    return;
-  }
-  const near = arr(police.cars).some((c) => Math.hypot(c.x - player.x, c.z - player.z) < 45);
-  if (near) {
-    state.wantedQuietTimer = 0;
-    return;
-  }
-  state.wantedQuietTimer += dt;
-  if (state.wantedQuietTimer >= WANTED_DECAY_SECONDS) {
-    state.wantedQuietTimer = 0;
-    state.wanted -= 1;
-    if (police && typeof police.setWanted === 'function') police.setWanted(state.wanted);
-    if (state.wanted === 0 && audio && typeof audio.siren === 'function') audio.siren(false);
+    if (audio && typeof audio.siren === 'function') audio.siren(state.wanted > 0);
     refreshHUD();
   }
 }
@@ -534,7 +537,7 @@ function doBusted() {
   if (police && typeof police.setWanted === 'function') police.setWanted(0);
   if (police && typeof police.clear === 'function') police.clear();
   if (audio && typeof audio.siren === 'function') audio.siren(false);
-  respawn(city.policeStation || { x: 0, z: 0 });
+  respawn(policeSpawn());
   const el = $('busted-fine');
   if (el) el.textContent = '$' + fine;
   showScreen('busted');
@@ -549,7 +552,7 @@ function doWasted() {
   if (police && typeof police.clear === 'function') police.clear();
   if (audio && typeof audio.siren === 'function') audio.siren(false);
   player.health = 100;
-  respawn(city.hospital || { x: 0, z: 0 });
+  respawn(hospitalSpawn());
   const el = $('wasted-fine');
   if (el) el.textContent = '$' + fine;
   showScreen('wasted');
@@ -596,6 +599,7 @@ function enterCar(car) {
   if (car.isPolice) {
     addWanted(2);
     flashMessage('Kamu mencuri mobil polisi!');
+    if (police && typeof police.removeCar === 'function') police.removeCar(car);
   } else if (car.hasDriver) {
     addWanted(1);
     flashMessage('Mobil dibajak! Saksi melihatmu.');
@@ -613,6 +617,7 @@ function enterCar(car) {
   player.z = car.z;
   player.heading = car.heading;
   player.speed = car.speed || 0;
+  if (player.mesh) player.mesh.visible = false;
   if (audio && typeof audio.play === 'function') audio.play('door');
 }
 function exitCar() {
@@ -627,6 +632,7 @@ function exitCar() {
   player.x = car.x + Math.cos(car.heading) * 1.6;
   player.z = car.z - Math.sin(car.heading) * 1.6;
   clampToWorld(player);
+  if (player.mesh) player.mesh.visible = true;
   if (audio && typeof audio.play === 'function') audio.play('door');
 }
 function tryEnterExitCar() {
@@ -658,8 +664,11 @@ function driveCar(car, dt) {
     const steer = (steerL ? 1 : 0) - (steerR ? 1 : 0);
     car.heading += steer * 1.9 * dt * Math.min(1, Math.abs(car.speed) / 8) * Math.sign(car.speed);
   }
-  car.x += Math.sin(car.heading) * car.speed * dt;
-  car.z += Math.cos(car.heading) * car.speed * dt;
+  // Heading 0 faces -z (north), same convention as vehicles.js:
+  // forward is (-sin heading, -cos heading), so the mesh (rotation.y =
+  // heading, nose at local -z) moves where it points.
+  car.x += -Math.sin(car.heading) * car.speed * dt;
+  car.z += -Math.cos(car.heading) * car.speed * dt;
   clampToWorld(car);
   if (Math.abs(car.speed) < 0.05) car.speed = 0;
   if (audio && typeof audio.setEngineSpeed === 'function') {
@@ -676,8 +685,8 @@ function updatePlayer(dt) {
     const run = isDown('ShiftLeft') || isDown('ShiftRight');
     p.heading += turn * 2.4 * dt;
     p.speed = fwd * (run ? 7 : 4);
-    p.x += Math.sin(p.heading) * p.speed * dt;
-    p.z += Math.cos(p.heading) * p.speed * dt;
+    p.x += -Math.sin(p.heading) * p.speed * dt;
+    p.z += -Math.cos(p.heading) * p.speed * dt;
     clampToWorld(p);
   } else if (p.car) {
     driveCar(p.car, dt);
@@ -728,17 +737,6 @@ function regenHealth(dt) {
 }
 
 // ---------- Missions glue ----------
-function missionCtx() {
-  return {
-    state,
-    player,
-    cars: allCars(),
-    timeOfDay: state.timeOfDay,
-    money: state.money,
-    missionsDone: state.missionsDone,
-    packages: state.packages,
-  };
-}
 function missionsComplete() {
   if (missions && typeof missions.isComplete === 'function') {
     try { return missions.isComplete(); } catch (err) { return false; }
@@ -749,46 +747,18 @@ function missionsComplete() {
   }
   return false;
 }
-function handleMissionEvent(ev) {
-  if (!ev || typeof ev !== 'object') return;
-  if (ev.type === 'mission-complete' || ev.type === 'complete') {
-    const reward = ev.reward ?? 0;
-    state.money += reward;
-    if (ev.id && !state.missionsDone.includes(ev.id)) state.missionsDone.push(ev.id);
-    if (ev.package && !state.packages.includes(ev.package)) state.packages.push(ev.package);
-    writeSave();
-    if (audio && typeof audio.play === 'function') audio.play('mission');
-    if (missionsComplete()) {
-      state.storyDone = true;
-      const stats = $('story-stats');
-      if (stats) {
-        stats.textContent = 'Misi selesai: ' + state.missionsDone.length
-          + ' • Uang: $' + state.money;
-      }
-      showScreen('story-complete');
-      if (audio && typeof audio.play === 'function') audio.play('story');
-      writeSave();
-    } else {
-      showMissionComplete(ev.title, reward);
-    }
-  } else if (ev.type === 'mission-start' || ev.type === 'start') {
-    flashMessage(ev.title ? 'Misi baru: ' + ev.title : 'Misi baru dimulai');
-    if (ev.objective) setObjective(ev.objective);
-  } else if (ev.type === 'package') {
-    if (ev.id && !state.packages.includes(ev.id)) state.packages.push(ev.id);
-    state.money += ev.reward ?? 0;
-    flashMessage(ev.text || 'Paket ditemukan! +$' + (ev.reward ?? 0));
-    writeSave();
-  } else if (ev.type === 'wanted') {
-    addWanted(ev.amount ?? 1);
-  } else if (ev.type === 'message') {
-    flashMessage(ev.text || '');
-  }
+// Start the first mission not yet completed (sequential unlock).
+function startNextMission() {
+  if (!missions || typeof missions.start !== 'function') return;
+  const done = Array.isArray(missions.completedIds) ? missions.completedIds : state.missionsDone;
+  const all = (missionsMod.MISSIONS || []);
+  const idx = all.findIndex((m) => !done.includes(m.id));
+  if (idx >= 0) missions.start(idx);
 }
 
 // ---------- Game flow ----------
 function spawnStarterCar() {
-  const spawn = (city && city.playerSpawn) || { x: 0, z: 8 };
+  const spawn = playerSpawn();
   const near = state.parkedCars.some(
     (c) => Math.hypot(c.x - spawn.x, c.z - spawn.z) < 12,
   );
@@ -820,22 +790,21 @@ function resetRunState() {
   player.onFoot = true;
   player.car = null;
   player.speed = 0;
-  const spawn = (city && city.playerSpawn) || { x: 0, z: 8 };
+  const spawn = playerSpawn();
   player.x = spawn.x;
   player.z = spawn.z;
   player.heading = spawn.heading ?? 0;
   if (police && typeof police.setWanted === 'function') police.setWanted(0);
   if (police && typeof police.clear === 'function') police.clear();
   spawnStarterCar();
-  if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay);
+  if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay / 24);
 }
 function startNewGame() {
   state.money = START_MONEY;
   state.missionsDone = [];
   state.packages = [];
   resetRunState();
-  if (missions && typeof missions.start === 'function') missions.start();
-  else if (missions && typeof missions.startNext === 'function') missions.startNext();
+  startNextMission();
   writeSave();
   flashMessage('Selamat datang di Solmara, Danny.');
   setObjective('Ikuti penanda misi di minimap.');
@@ -850,17 +819,43 @@ function startContinue() {
   }
   applySave(save);
   resetRunState();
-  if (missions && typeof missions.resume === 'function') missions.resume(state.missionsDone);
-  else if (missions && typeof missions.start === 'function') missions.start();
+  startNextMission();
   writeSave();
   flashMessage('Lanjutkan petualangan Danny di Solmara.');
   showScreen('playing');
   if (audio && typeof audio.play === 'function') audio.play('start');
 }
 
+// Keep the 3D scene in step with the logical state: main owns movement,
+// so it also owns the player mesh transform, the player car mesh, and the
+// third-person camera (player.update() is not called, so nothing else
+// does this — without it Danny never visibly moves and the camera never
+// follows).
+function syncVisuals() {
+  if (!player || !world || !world.camera) return;
+  if (player.mesh) {
+    player.mesh.position.set(player.x, 0, player.z);
+    player.mesh.rotation.y = player.heading;
+    player.mesh.visible = player.onFoot;
+  }
+  if (player.car && player.car.mesh) {
+    player.car.mesh.position.set(player.car.x, 0, player.car.z);
+    player.car.mesh.rotation.y = player.car.heading;
+  }
+  const cam = world.camera;
+  const d = 8;
+  cam.position.set(
+    player.x + Math.sin(player.heading) * d,
+    3.4,
+    player.z + Math.cos(player.heading) * d,
+  );
+  cam.lookAt(player.x, 1.5, player.z);
+}
+
 // ---------- Fixed-step loop ----------
 function paint(stepWorld) {
   const snap = snapshot();
+  syncVisuals();
   if (stepWorld && typeof world.update === 'function') world.update(STEP, snap);
   if (typeof world.render === 'function') world.render(snap);
   refreshHUD();
@@ -868,14 +863,22 @@ function paint(stepWorld) {
 function tick(dt) {
   state.elapsed += dt;
   state.timeOfDay = (state.timeOfDay + (dt / DAY_SECONDS) * 24) % 24;
-  if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay);
+  // render.js takes a 0..1 day fraction, main's clock is 0..24 hours.
+  if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay / 24);
   if (input && typeof input.update === 'function') {
     try { input.update(); } catch (err) { /* ignore */ }
   }
   updatePlayer(dt);
-  if (typeof vehicles.update === 'function') vehicles.update(dt, snapshot());
-  if (typeof traffic.update === 'function') traffic.update(dt, snapshot());
-  if (typeof police.update === 'function') police.update(dt, snapshot());
+  if (player.onFoot && audio && typeof audio.setEngineSpeed === 'function') {
+    audio.setEngineSpeed(0);
+  }
+  if (vehicles && typeof vehicles.update === 'function') vehicles.update(dt, snapshot());
+  if (traffic && typeof traffic.update === 'function') traffic.update(dt, player);
+  if (police && typeof police.update === 'function') {
+    let res = null;
+    try { res = police.update(dt, player, allCars()); } catch (err) { /* ignore */ }
+    if (res && res.busted && state.screen === 'playing') doBusted();
+  }
   syncWanted(dt);
   checkBusted(dt);
   if (state.screen !== 'playing') return;
@@ -885,8 +888,31 @@ function tick(dt) {
   if (state.screen !== 'playing') return;
   regenHealth(dt);
   if (missions && typeof missions.update === 'function') {
-    const ev = missions.update(dt, missionCtx());
-    if (ev) handleMissionEvent(ev);
+    // missions.update() returns nothing; a mission completes when the
+    // active mission clears AND completedCount grows. The reward was
+    // already added via game.addMoney — here only the overlay shows.
+    const activeBefore = activeMission();
+    const doneBefore = typeof missions.completedCount === 'number' ? missions.completedCount : 0;
+    try { missions.update(dt); } catch (err) { /* missions never crash the game */ }
+    if (Array.isArray(missions.completedIds)) state.missionsDone = [...missions.completedIds];
+    if (Array.isArray(missions.foundPackageIds)) state.packages = [...missions.foundPackageIds];
+    const doneAfter = typeof missions.completedCount === 'number' ? missions.completedCount : doneBefore;
+    if (activeBefore && !activeMission() && doneAfter > doneBefore) {
+      if (missionsComplete()) {
+        state.storyDone = true;
+        const stats = $('story-stats');
+        if (stats) {
+          stats.textContent = 'Misi selesai: ' + state.missionsDone.length
+            + ' • Uang: $' + state.money;
+        }
+        showScreen('story-complete');
+        if (audio && typeof audio.play === 'function') audio.play('story');
+        writeSave();
+      } else {
+        showMissionComplete(activeBefore.title, activeBefore.reward || 0);
+        writeSave();
+      }
+    }
   }
   if (state.screen !== 'playing') return;
   state.autosaveTimer += dt;
@@ -941,7 +967,7 @@ function makeGameCtx() {
     parkCar,
     setTimeOfDay(h) {
       state.timeOfDay = ((h % 24) + 24) % 24;
-      if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay);
+      if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay / 24);
       refreshHUD();
     },
     setWanted,
@@ -964,15 +990,13 @@ function makeGameCtx() {
       player.speed = car.speed || 0;
     },
     spawnCar(opts) {
+      if (opts && opts.isPolice && police && typeof police.spawn === 'function') {
+        return police.spawn(opts.x || 0, opts.z || 0, opts.heading || 0);
+      }
       if (typeof vehicles.spawnCar !== 'function') return null;
       const car = vehicles.spawnCar(opts);
       if (!car) return null;
-      if (opts.isPolice) {
-        if (Array.isArray(police.cars)) police.cars.push(car);
-      } else {
-        state.parkedCars.push(car);
-      }
-      if (typeof world.addCar === 'function') world.addCar(car);
+      state.parkedCars.push(car);
       return car;
     },
     spawnPoliceCar(x, z, heading) {
@@ -985,7 +1009,16 @@ function makeGameCtx() {
     flashMessage,
     setObjective,
     startMission(id) {
-      if (missions && typeof missions.start === 'function') missions.start(id);
+      if (!missions || typeof missions.start !== 'function') return;
+      // missions.start takes an index; accept an 'M1' id or an index.
+      if (typeof id === 'string') {
+        const idx = (missionsMod.MISSIONS || []).findIndex((m) => m.id === id);
+        if (idx >= 0) missions.start(idx);
+      } else if (typeof id === 'number') {
+        missions.start(id);
+      } else {
+        startNextMission();
+      }
     },
   };
 }
@@ -995,29 +1028,62 @@ function runShot(name) {
   state.missionsDone = [];
   state.packages = [];
   stageShot(name, gameCtx);
+  // Keep re-painting: without a running loop the WebGL drawing buffer is
+  // cleared after its first composite and a later screenshot captures a
+  // black canvas. The staged frame stays identical (tick never runs here).
+  const shotLoop = () => {
+    paint(true);
+    requestAnimationFrame(shotLoop);
+  };
+  requestAnimationFrame(shotLoop);
 }
 
 // ---------- Init ----------
 function init() {
   canvas = $('game-canvas');
-  textures = createTextures ? createTextures() : null;
-  city = createCity({ rng: rngFn, textures, config: CONFIG, seed });
-  world = createWorld3D(canvas, { city, textures, config: CONFIG, rng: rngFn, seed });
-  input = createInput();
-  const spawn = (city && city.playerSpawn) || { x: 0, z: 8 };
-  player = createPlayer({ x: spawn.x, z: spawn.z, heading: spawn.heading ?? 0 });
+  textures = null; // textures.js has no createTextures; city.js builds its own
+  world = createWorld3D(canvas);
+  city = createCity(world.scene, rngFn);
+  input = createInput(canvas);
+  const spawn = playerSpawn();
+  player = createPlayer(world.scene, city);
+  player.setPosition(spawn.x, spawn.z);
+  player.heading = spawn.heading ?? 0;
   player.health = 100;
   player.onFoot = true;
   player.car = null;
   player.speed = 0;
-  vehicles = createVehicles({ rng: rngFn, city, world, textures, config: CONFIG });
-  traffic = createTraffic({ rng: rngFn, city, world, vehicles, config: CONFIG });
-  police = createPolice({ rng: rngFn, city, world, vehicles, config: CONFIG });
-  missions = createMissionManager({ rng: rngFn, city, world, config: CONFIG });
-  hud = createHUD ? createHUD($('hud')) : null;
-  audio = createAudio ? createAudio() : null;
-
+  vehicles = createVehicles({ scene: world.scene, city, rng: rngFn });
+  traffic = createTraffic(world.scene, city, 10);
+  police = createPolice(world.scene, city);
   const save = readSave();
+  const missionGame = {
+    player,
+    city,
+    traffic,
+    police,
+    hud: null,
+    audio: null, // wired below once audio exists; missions guard a null audio
+    save: save ? {
+      completedMissions: save.missionsDone || [],
+      foundPackages: save.packages || [],
+    } : null,
+    setObjective,
+    addMoney(amount) {
+      state.money += amount;
+      refreshHUD();
+    },
+    showMessage: flashMessage,
+    spawnMarker(x, z, label) { state.marker = { x, z, label }; },
+    clearMarker() { state.marker = null; },
+  };
+  missions = createMissionManager(missionGame);
+  // hud.js builds its own overlay duplicating the index.html HUD, so it is
+  // not instantiated; the DOM HUD is driven by refreshHUD()/flashMessage().
+  hud = null;
+  audio = createAudio ? createAudio() : null;
+  missionGame.audio = audio;
+
   if (save) applySave(save);
   updateMuteButtons();
 
@@ -1034,7 +1100,7 @@ function init() {
     }
   }
   spawnStarterCar();
-  if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay);
+  if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay / 24);
 
   on('btn-new', startNewGame);
   on('btn-continue', startContinue);

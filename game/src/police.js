@@ -10,7 +10,7 @@
 // police station and resetting wanted to 0. Health 0 (WASTED) is handled
 // by the caller, not here.
 
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 import { createCar, driveCar } from './vehicles.js';
 
 const HIDE_RADIUS = 60; // decay only when no cop is this close
@@ -125,9 +125,11 @@ export function createPolice(scene, city) {
     if (i >= 0) footCops.splice(i, 1);
   }
 
-  function spawnCopCar(player) {
-    const p = randomRoadPointNear(city, player.x, player.z, 45, 85);
-    const heading = Math.atan2(-(player.x - p.x), -(player.z - p.z));
+  function spawnCopCar(player, at) {
+    const p = at || randomRoadPointNear(city, player.x, player.z, 45, 85);
+    const heading = at && typeof at.heading === 'number'
+      ? at.heading
+      : Math.atan2(-(player.x - p.x), -(player.z - p.z));
     const car = createCar('sedan', p.x, p.z, heading);
     car.isPolice = true;
     car.color = 0x14161c;
@@ -193,6 +195,32 @@ export function createPolice(scene, city) {
     const before = wanted;
     wanted = Math.max(0, Math.min(5, wanted + (n | 0)));
     if (wanted > before) hiddenTimer = 0; // fresh heat resets the decay clock
+  }
+
+  // Set the level outright (main glue mirrors its own wanted state here).
+  // The force itself is re-synced on the next update().
+  function setWanted(n) {
+    wanted = Math.max(0, Math.min(5, n | 0));
+    hiddenTimer = 0;
+  }
+
+  // Spawn one patrol car at an exact spot (screenshot staging, missions).
+  function spawn(x, z, heading) {
+    const before = copCars.length;
+    spawnCopCar({ x, z }, { x, z, heading: heading || 0 });
+    return copCars.length > before ? copCars[copCars.length - 1].car : null;
+  }
+
+  // Release a cop car from the force (e.g. the player just stole it):
+  // the mesh stays in the scene, the AI stops driving it.
+  function removeCar(car) {
+    const entry = copCars.find((e) => e.car === car);
+    if (entry) {
+      const i = copCars.indexOf(entry);
+      if (i >= 0) copCars.splice(i, 1);
+      return true;
+    }
+    return false;
   }
 
   function reset() {
@@ -346,9 +374,16 @@ export function createPolice(scene, city) {
     get wanted() {
       return wanted;
     },
+    get cars() {
+      return copCars.map((e) => e.car);
+    },
     addWanted,
+    setWanted,
+    spawn,
+    removeCar,
     update,
     reset,
+    clear: reset,
     nearestCopDist,
   };
 }

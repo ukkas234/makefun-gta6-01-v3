@@ -73,6 +73,7 @@ function makeAiCar(scene, city, x, z) {
   const def = CAR_TYPES[type];
   const dir = CARDINAL[Math.floor(Math.random() * CARDINAL.length)];
   const car = createCar(type, x, z, dir);
+  car.hasDriver = true; // a driven car: stealing it is a witnessed crime
   scene.add(car.mesh);
   return {
     car,
@@ -211,9 +212,35 @@ export function createTraffic(scene, city, count) {
     return best;
   }
 
+  // Release a car from the AI (e.g. the player just stole it): the mesh
+  // stays in the scene, traffic stops driving it.
+  function removeCar(car) {
+    const i = list.findIndex((ai) => ai.car === car);
+    if (i >= 0) {
+      list.splice(i, 1);
+      return true;
+    }
+    return false;
+  }
+
+  function spawn(n) {
+    const out = [];
+    const count = Math.max(0, n | 0);
+    for (let i = 0; i < count; i++) {
+      const p = randomRoadPoint(city, 0, 0, 160);
+      if (!p) break;
+      const ai = makeAiCar(scene, city, p.x, p.z);
+      list.push(ai);
+      out.push(ai.car);
+    }
+    return out;
+  }
+
   return {
-    cars: list.map((ai) => ai.car),
+    get cars() { return list.map((ai) => ai.car); },
     update,
     nearestCar,
+    removeCar,
+    spawn,
   };
 }

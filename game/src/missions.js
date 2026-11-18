@@ -408,6 +408,17 @@ export function createMissionManager(game) {
     get active() { return active; },
     get packagesFound() { return foundPackages.size; },
     get completedCount() { return completed.size; },
+    get completedIds() { return [...completed]; },
+    get foundPackageIds() { return [...foundPackages]; },
+
+    // All missions with their done state, for the menu list.
+    list() {
+      return MISSIONS.map((m) => ({
+        id: m.id, title: m.title, reward: m.reward, done: completed.has(m.id),
+      }));
+    },
+
+    isComplete() { return completed.size === MISSIONS.length; },
 
     // Indices of missions the player may start: sequential unlock, and every
     // completed mission stays replayable.

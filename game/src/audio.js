@@ -224,6 +224,24 @@ export function createAudio() {
       } catch (e) { /* silent */ }
     },
 
+    // One-shot UI / event sounds by name (main glue calls play(name)).
+    play(name) {
+      if (name === 'mission' || name === 'story') this.sting();
+      else if (name === 'pickup') this.pickup();
+      else this.click();
+    },
+
+    // Wake the context (user gesture already happened).
+    resume() {
+      ensure();
+    },
+
+    // Engine hum by speed 0..1; 0 stops the loop.
+    setEngineSpeed(r) {
+      const s = typeof r === 'number' ? r : 0;
+      this.engine(s, s > 0.02);
+    },
+
     get muted() { return mutedFlag; },
   };
 

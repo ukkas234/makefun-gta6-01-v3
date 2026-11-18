@@ -261,7 +261,7 @@ export function createCity(scene, rng) {
       roadGraph.nodes.push({ x, z });
     }
   }
-  for (const [x, z] of roadGraph.nodes) {
+  for (const { x, z } of roadGraph.nodes) {
     const i = nodeIndex.get(`${x},${z}`);
     for (const [dx, dz] of [[CITY.pitch, 0], [-CITY.pitch, 0], [0, CITY.pitch], [0, -CITY.pitch]]) {
       const j = nodeIndex.get(`${x + dx},${z + dz}`);

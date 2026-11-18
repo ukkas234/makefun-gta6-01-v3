@@ -3,7 +3,7 @@
 // Ground plane y = 0, x east, z south. Heading is rotation around Y:
 // heading 0 faces -z (north), heading grows clockwise viewed from above.
 
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 
 // ---------------------------------------------------------------------------
 // Car types: distinct top speed / acceleration / colour per type.
@@ -125,15 +125,15 @@ export function createCarMesh(type, color) {
 }
 
 // ---------------------------------------------------------------------------
-// createCar(type, x, z, heading) -> car object
+// createCar(type, x, z, heading, color?) -> car object
 // { mesh, x, z, heading, speed, type, color, isPlayer, isPolice, length,
 //   width, radius }
 // heading in radians, 0 = facing -z (north). speed in m/s (signed: negative
-// means reversing).
+// means reversing). `color` (CSS string or hex) overrides the type default.
 // ---------------------------------------------------------------------------
-export function createCar(type, x, z, heading) {
+export function createCar(type, x, z, heading, color) {
   const def = CAR_TYPES[type] || CAR_TYPES.sedan;
-  const mesh = createCarMesh(type, def.color);
+  const mesh = createCarMesh(type, color !== undefined ? color : def.color);
   const car = {
     mesh,
     x,
@@ -141,7 +141,7 @@ export function createCar(type, x, z, heading) {
     heading: heading || 0,
     speed: 0,
     type,
-    color: def.color,
+    color: color !== undefined ? color : def.color,
     isPlayer: false,
     isPolice: false,
     length: def.length,
@@ -250,4 +250,56 @@ export function driveCar(car, dt, controls, city) {
   car.mesh.rotation.z = -steer * Math.min(Math.abs(car.speed) / def.topSpeed, 1) * 0.05;
 
   syncMesh(car);
+}
+
+// ---------------------------------------------------------------------------
+// createVehicles({ scene, city, rng }) -> { spawnCar, spawnParked, update }
+// Manager the main glue uses: spawnCar adds the mesh to the scene, so the
+// caller never has to. spawnParked puts n driverless cars on roads.
+// 'sports' is not a CAR_TYPES entry; it maps to the muscle car.
+// ---------------------------------------------------------------------------
+export function createVehicles(opts) {
+  const scene = opts ? opts.scene : null;
+  const city = opts ? opts.city : null;
+  const rng = (opts && typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const parked = [];
+
+  function spawnCar(o) {
+    const src = o || {};
+    const type = src.type === 'sports' ? 'muscle' : (src.type || 'sedan');
+    const car = createCar(type, src.x || 0, src.z || 0, src.heading || 0, src.color);
+    car.isPolice = !!src.isPolice;
+    if (scene) scene.add(car.mesh);
+    return car;
+  }
+
+  function spawnParked(n) {
+    const out = [];
+    const count = Math.max(0, n | 0);
+    for (let i = 0; i < count; i++) {
+      let x = (rng() * 2 - 1) * 200;
+      let z = (rng() * 2 - 1) * 200;
+      if (city && typeof city.nearestRoadPoint === 'function') {
+        const p = city.nearestRoadPoint(x, z);
+        if (p && Number.isFinite(p.x) && Number.isFinite(p.z)) {
+          x = p.x;
+          z = p.z;
+        }
+      }
+      const types = Object.keys(CAR_TYPES);
+      const type = types[Math.floor(rng() * types.length)];
+      const car = spawnCar({ type, x, z, heading: rng() * Math.PI * 2 });
+      parked.push(car);
+      out.push(car);
+    }
+    return out;
+  }
+
+  // Parked cars do not move; keep their meshes in step in case a caller
+  // moved one (player exit parks a car through the main glue, not here).
+  function update() {
+    for (const car of parked) syncMesh(car);
+  }
+
+  return { spawnCar, spawnParked, update, cars: parked };
 }
