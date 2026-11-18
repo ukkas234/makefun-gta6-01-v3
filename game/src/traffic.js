@@ -8,7 +8,6 @@
 // four cardinal directions and re-picks its direction whenever the road
 // ahead ends or at an intersection.
 
-import * as THREE from 'three';
 import { createCar, driveCar, CAR_TYPES } from './vehicles.js';
 
 const CARDINAL = [0, Math.PI / 2, Math.PI, -Math.PI / 2]; // N, E, S, W headings
@@ -81,6 +80,7 @@ function makeAiCar(scene, city, x, z) {
     // Cruise at 55–80% of the type's top speed so traffic feels varied.
     cruise: def.topSpeed * (0.55 + Math.random() * 0.25),
     retargetTimer: 1 + Math.random() * 2,
+    resnapCooldown: 0,
     stopped: false,
   };
 }
@@ -144,16 +144,28 @@ export function createTraffic(scene, city, count) {
       }
 
       // If we somehow ended up off the road, snap back to the nearest
-      // road point and pick a fresh direction.
+      // road point — but only when that point is genuinely on a road, and
+      // at most once a second. Blindly re-snapping every frame to a bad
+      // point would pin the car in place forever.
+      ai.resnapCooldown -= dt;
       if (!city.isOnRoad(car.x, car.z)) {
         const p = city.nearestRoadPoint
           ? city.nearestRoadPoint(car.x, car.z)
           : null;
-        if (p) {
+        if (p && ai.resnapCooldown <= 0 && city.isOnRoad(p.x, p.z)) {
           car.x = p.x;
           car.z = p.z;
           car.speed = Math.min(car.speed, 4);
           ai.dir = pickDirection(city, ai, true);
+          ai.resnapCooldown = 1;
+        } else if (p) {
+          // No valid snap (yet): steer towards the nearest road point
+          // instead of standing still.
+          const want = Math.atan2(-(p.x - car.x), -(p.z - car.z));
+          const snapped = CARDINAL.reduce((best, h) =>
+            Math.abs(clampAngle(h - want)) < Math.abs(clampAngle(best - want)) ? h : best,
+          CARDINAL[0]);
+          ai.dir = snapped;
         } else {
           ai.dir = pickDirection(city, ai, true);
         }
@@ -205,7 +217,3 @@ export function createTraffic(scene, city, count) {
     nearestCar,
   };
 }
-
-// Keep the THREE import referenced for bundlers / linters that flag unused
-// imports; traffic meshes are built through vehicles.js.
-void THREE;
