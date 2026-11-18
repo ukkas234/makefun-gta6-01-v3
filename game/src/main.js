@@ -286,6 +286,69 @@ window.addEventListener('resize', () => {
   if (world && typeof world.resize === 'function') world.resize();
 });
 
+// ---------- Minimap ----------
+// Draws the live minimap on the #minimap canvas in index.html: street
+// grid, parked/traffic cars (white), police (red), mission marker
+// (yellow diamond) and the player arrow (green). World range -320..320
+// covers the 520 m city plus the beach strip.
+let minimapCtx = null;
+function drawMinimap() {
+  const canvas = $('minimap');
+  if (!canvas || !player) return;
+  if (!minimapCtx) minimapCtx = canvas.getContext('2d');
+  const ctx = minimapCtx;
+  if (!ctx) return;
+  const W = canvas.width;
+  const H = canvas.height;
+  const MIN = -320;
+  const RANGE = 640;
+  const toX = (x) => ((x - MIN) / RANGE) * W;
+  const toY = (z) => ((z - MIN) / RANGE) * H;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#101823';
+  ctx.fillRect(0, 0, W, H);
+  // Street grid (roads every 52 m from -260 to 260).
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  ctx.lineWidth = 4;
+  for (let g = -260; g <= 260; g += 52) {
+    ctx.beginPath(); ctx.moveTo(toX(g), 0); ctx.lineTo(toX(g), H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, toY(g)); ctx.lineTo(W, toY(g)); ctx.stroke();
+  }
+  // Beach strip at the south edge.
+  ctx.fillStyle = 'rgba(217,192,138,0.35)';
+  ctx.fillRect(0, toY(260), W, H - toY(260));
+  const dot = (x, z, r, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(toX(x), toY(z), r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  for (const c of state.parkedCars) dot(c.x, c.z, 2, '#ffffff');
+  for (const c of arr(traffic.cars)) dot(c.x, c.z, 2.5, '#ffffff');
+  for (const c of arr(police.cars)) dot(c.x, c.z, 3, '#f43f5e');
+  if (state.marker) {
+    const mx = toX(state.marker.x);
+    const my = toY(state.marker.z);
+    const p = 6 + 2 * Math.sin(performance.now() / 240);
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath();
+    ctx.moveTo(mx, my - p); ctx.lineTo(mx + p, my);
+    ctx.lineTo(mx, my + p); ctx.lineTo(mx - p, my);
+    ctx.closePath(); ctx.fill();
+  }
+  // Player arrow, rotated to the heading.
+  ctx.save();
+  ctx.translate(toX(player.x), toY(player.z));
+  ctx.rotate(-player.heading);
+  ctx.fillStyle = '#4ade80';
+  ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(-5, 6);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
 // ---------- HUD ----------
 const hudCache = { cash: null, health: null, stars: null, clock: null, objective: null };
 function currentObjective() {
@@ -341,6 +404,7 @@ function refreshHUD() {
   if (hud && typeof hud.update === 'function') {
     try { hud.update(snapshot()); } catch (err) { /* HUD is optional */ }
   }
+  drawMinimap();
 }
 function flashMessage(text) {
   if (!text) return;
