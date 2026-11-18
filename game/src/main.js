@@ -513,6 +513,7 @@ function respawn(spot) {
   if (player.car) {
     player.car.isPlayer = false;
     player.car.speed = 0;
+    parkCar(player.car);
     player.car = null;
   }
   player.onFoot = true;
@@ -580,6 +581,17 @@ function removeFromParked(car) {
   const i = state.parkedCars.indexOf(car);
   if (i >= 0) state.parkedCars.splice(i, 1);
 }
+// A car the player leaves behind must stay in the world: return it to the
+// parked list unless a module (traffic / police) still owns it. Without
+// this, an exited car vanished from allCars() — invisible and un-enterable.
+function parkCar(car) {
+  if (!car) return;
+  const inTraffic = arr(traffic.cars).includes(car);
+  const inPolice = arr(police.cars).includes(car);
+  if (!inTraffic && !inPolice && !state.parkedCars.includes(car)) {
+    state.parkedCars.push(car);
+  }
+}
 function enterCar(car) {
   if (car.isPolice) {
     addWanted(2);
@@ -588,6 +600,7 @@ function enterCar(car) {
     addWanted(1);
     flashMessage('Mobil dibajak! Saksi melihatmu.');
     car.hasDriver = false;
+    car.stolen = true;
     if (traffic && typeof traffic.removeCar === 'function') traffic.removeCar(car);
   } else {
     flashMessage('Masuk ke ' + (car.type || 'mobil') + '.');
@@ -607,6 +620,7 @@ function exitCar() {
   if (!car) return;
   car.isPlayer = false;
   car.speed = 0;
+  parkCar(car);
   player.car = null;
   player.onFoot = true;
   player.speed = 0;
@@ -797,6 +811,11 @@ function resetRunState() {
   state.timeOfDay = 9;
   state.storyDone = false;
   state.lastObjective = '';
+  if (player.car) {
+    player.car.isPlayer = false;
+    player.car.speed = 0;
+    parkCar(player.car);
+  }
   player.health = 100;
   player.onFoot = true;
   player.car = null;
@@ -919,6 +938,7 @@ function makeGameCtx() {
     rng: rngFn,
     seed,
     cars: allCars,
+    parkCar,
     setTimeOfDay(h) {
       state.timeOfDay = ((h % 24) + 24) % 24;
       if (typeof world.setTimeOfDay === 'function') world.setTimeOfDay(state.timeOfDay);
@@ -934,6 +954,7 @@ function makeGameCtx() {
     placePlayerInCar(car) {
       if (!car) return;
       if (player.car) player.car.isPlayer = false;
+      removeFromParked(car);
       car.isPlayer = true;
       player.car = car;
       player.onFoot = false;

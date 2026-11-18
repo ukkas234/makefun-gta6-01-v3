@@ -15,6 +15,7 @@ export function stageShot(name, game) {
   if (g.player && g.player.car) {
     g.player.car.isPlayer = false;
     g.player.car.speed = 0;
+    if (typeof g.parkCar === 'function') g.parkCar(g.player.car);
     g.player.car = null;
   }
   if (g.player) {
