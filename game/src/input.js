@@ -29,6 +29,7 @@ export function createInput(canvas) {
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+  let dragDist = 0;
 
   function onKeyDown(e) {
     if (!GAME_KEYS.has(e.code)) return;
@@ -55,6 +56,7 @@ export function createInput(canvas) {
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
+    dragDist = 0;
     if (canvas.setPointerCapture && e.pointerId !== undefined) {
       try { canvas.setPointerCapture(e.pointerId); } catch (_err) { /* no capture */ }
     }
@@ -62,15 +64,21 @@ export function createInput(canvas) {
 
   function onPointerMove(e) {
     if (!dragging) return;
-    mouseDX += e.clientX - lastX;
-    mouseDY += e.clientY - lastY;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    mouseDX += dx;
+    mouseDY += dy;
+    dragDist += Math.abs(dx) + Math.abs(dy);
     lastX = e.clientX;
     lastY = e.clientY;
   }
 
   function onPointerUp(e) {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
-    if (mouseDown) clickQueued = true;
+    // A drag that orbited the camera is not a click: only queue a click
+    // when the pointer barely moved, so ending an orbit drag cannot
+    // accidentally fire the pistol.
+    if (mouseDown && dragDist < 6) clickQueued = true;
     mouseDown = false;
     dragging = false;
   }

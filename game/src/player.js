@@ -130,7 +130,6 @@ export function createPlayer(scene, city) {
   const raycaster = new THREE.Raycaster();
   const _fwd = new THREE.Vector3();
   const _right = new THREE.Vector3();
-  const _up = new THREE.Vector3(0, 1, 0);
   const _camDir = new THREE.Vector3();
   const _rayOrigin = new THREE.Vector3();
 
@@ -297,12 +296,14 @@ export function createPlayer(scene, city) {
     }
 
     if (player.health <= 0) {
-      // Down: no movement, slumped pose.
+      // Down: no movement, slumped pose. Camera keeps following so the
+      // player sees the body instead of a frozen frame.
       velX = 0;
       velZ = 0;
       player.speed = 0;
       mesh.rotation.x = -Math.PI / 2 + 0.15;
       mesh.position.set(player.x, 0.3, player.z);
+      followCamera();
       return;
     }
     mesh.rotation.x = 0;
@@ -328,10 +329,8 @@ export function createPlayer(scene, city) {
 
     // Camera forward on the ground plane (camera sits behind player).
     _fwd.set(-Math.sin(camYaw), 0, -Math.cos(camYaw));
-    _right.crossVectors(_fwd, _up).negate();
-    // cross(fwd, up) points left for fwd=-z; negate -> right = +x. Verify:
-    // fwd=(0,0,-1), up=(0,1,0): cross = (0*0-(-1)*1, ...) = (1,0,0) is
-    // already +x, so negate would be wrong — recompute directly instead.
+    // Right = forward rotated -90° about Y: (-fwd.z, 0, fwd.x).
+    // Check: fwd=(0,0,-1) -> right=(1,0,0) = +x (east). Correct.
     _right.set(-_fwd.z, 0, _fwd.x);
 
     let mx = 0;
@@ -420,24 +419,29 @@ export function createPlayer(scene, city) {
       parts.armR.rotation.x = -swing;
       parts.armL.rotation.x = swing;
     }
-    // Blob shadow stays on the ground and shrinks with jump height.
-    parts.shadow.position.y = 0.02 - y;
-    const shadowScale = Math.max(0.55, 1 - y * 0.09);
-    parts.shadow.scale.setScalar(shadowScale);
     // Hurt flash: torso tint is skipped (Lambert shared mats) — the
     // mesh dips briefly instead.
     mesh.position.y = y - (hurtTimer > 0 ? 0.06 : 0);
+    // Blob shadow stays on the ground and shrinks with jump height.
+    // It is a child of the mesh group, so its local y must cancel the
+    // group's own y (including the hurt dip) to stay at world y = 0.02.
+    parts.shadow.position.y = 0.02 - mesh.position.y;
+    const shadowScale = Math.max(0.55, 1 - y * 0.09);
+    parts.shadow.scale.setScalar(shadowScale);
 
     // --- third-person camera follow.
-    if (camera) {
-      const cp = Math.cos(camPitch);
-      const sp = Math.sin(camPitch);
-      const cx = player.x + Math.sin(camYaw) * cp * CAM_DIST;
-      const cz = player.z + Math.cos(camYaw) * cp * CAM_DIST;
-      const cy = CAM_HEIGHT + sp * CAM_DIST;
-      camera.position.set(cx, Math.max(cy, 0.6), cz);
-      camera.lookAt(player.x, 1.5 + y * 0.5, player.z);
-    }
+    followCamera();
+  }
+
+  function followCamera() {
+    if (!camera) return;
+    const cp = Math.cos(camPitch);
+    const sp = Math.sin(camPitch);
+    const cx = player.x + Math.sin(camYaw) * cp * CAM_DIST;
+    const cz = player.z + Math.cos(camYaw) * cp * CAM_DIST;
+    const cy = CAM_HEIGHT + sp * CAM_DIST;
+    camera.position.set(cx, Math.max(cy, 0.6), cz);
+    camera.lookAt(player.x, 1.5 + y * 0.5, player.z);
   }
 
   player.update = update;
